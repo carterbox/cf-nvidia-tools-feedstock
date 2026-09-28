@@ -189,3 +189,160 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# --------------------------------------------------------------------------
+# Unit tests. Run with: python -m unittest check_cuda_arch
+# --------------------------------------------------------------------------
+
+import io
+import tempfile
+import unittest
+import unittest.mock
+
+
+class ParseArchTests(unittest.TestCase):
+    def test_valid(self):
+        self.assertEqual(parse_arch("7.5"), 75)
+        self.assertEqual(parse_arch("10.0"), 100)
+        self.assertEqual(parse_arch("12.1"), 121)
+
+    def test_invalid(self):
+        for text in ["75", "7", "7.5.0", "abc", ""]:
+            self.assertIsNone(parse_arch(text))
+
+
+class FormatArchTests(unittest.TestCase):
+    def test_format(self):
+        self.assertEqual(format_arch(75), "7.5")
+        self.assertEqual(format_arch(100), "10.0")
+        self.assertEqual(format_arch(121), "12.1")
+
+
+class ExpandTests(unittest.TestCase):
+    def test_glob_is_expanded_and_sorted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = [os.path.join(tmp, name) for name in ("b.so", "a.so", "c.so")]
+            for path in paths:
+                open(path, "w").close()
+            self.assertEqual(expand([os.path.join(tmp, "*.so")]), sorted(paths))
+
+    def test_literal_argument_is_kept_even_if_missing(self):
+        self.assertEqual(expand(["/no/such/file.so"]), ["/no/such/file.so"])
+
+    def test_glob_matching_nothing_yields_no_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(expand([os.path.join(tmp, "*.so")]), [])
+
+
+class RenderTests(unittest.TestCase):
+    def test_renders_dotted_architectures(self):
+        self.assertEqual(render([75, 80, 90]), "7.5 8.0 9.0")
+
+    def test_empty_renders_as_dash(self):
+        self.assertEqual(render([]), "-")
+
+
+class ArchitecturesTests(unittest.TestCase):
+    def _run(self, stdout):
+        with unittest.mock.patch(
+            "subprocess.run",
+            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout),
+        ):
+            return architectures("cuobjdump", "a.so", "--list-elf")
+
+    def test_extracts_sm_and_compute_keys(self):
+        keys, output = self._run("arch = sm_75\narch = compute_90\n")
+        self.assertEqual(keys, [75, 90])
+        self.assertEqual(output, "arch = sm_75\narch = compute_90\n")
+
+    def test_arch_conditional_suffix_is_stripped(self):
+        # sm_90a and sm_100f target base architectures 90 and 100 respectively.
+        keys, _ = self._run("arch = sm_90a\narch = sm_100f\n")
+        self.assertEqual(keys, [90, 100])
+
+    def test_no_matches_yields_empty_keys(self):
+        keys, output = self._run(NO_DEVICE_CODE + "\n")
+        self.assertEqual(keys, [])
+        self.assertEqual(output, NO_DEVICE_CODE + "\n")
+
+
+class MainTests(unittest.TestCase):
+    def _patched(self, sass_by_path, ptx_by_path=None, which="cuobjdump"):
+        """Patch subprocess.run so --list-elf/--list-ptx return per-path canned stdout."""
+        ptx_by_path = ptx_by_path or {}
+
+        def fake_run(cmd, **kwargs):
+            _, flag, path = cmd
+            stdout = (sass_by_path if flag == "--list-elf" else ptx_by_path).get(path, "")
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=stdout)
+
+        return (
+            unittest.mock.patch("subprocess.run", side_effect=fake_run),
+            unittest.mock.patch("shutil.which", return_value=which),
+        )
+
+    def test_missing_arch_min_exits_2(self):
+        with unittest.mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(SystemExit) as ctx:
+                main(["a.so"])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_bad_arch_min_exits_2(self):
+        with self.assertRaises(SystemExit) as ctx:
+            main(["--arch-min", "not-an-arch", "a.so"])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_missing_cuobjdump_exits_2(self):
+        with unittest.mock.patch("shutil.which", return_value=None):
+            with self.assertRaises(SystemExit) as ctx:
+                main(["--arch-min", "7.5", "a.so"])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_no_files_matched_exits_2(self):
+        with tempfile.TemporaryDirectory() as tmp, unittest.mock.patch(
+            "shutil.which", return_value="cuobjdump"
+        ):
+            with self.assertRaises(SystemExit) as ctx:
+                main(["--arch-min", "7.5", os.path.join(tmp, "*.so")])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_matching_architecture_returns_0(self):
+        run_patch, which_patch = self._patched({"a.so": "arch = sm_75\n"})
+        with run_patch, which_patch, unittest.mock.patch(
+            "sys.stdout", new_callable=io.StringIO
+        ) as stdout:
+            rc = main(["--arch-min", "7.5", "a.so"])
+        self.assertEqual(rc, 0)
+        self.assertIn("OK", stdout.getvalue())
+
+    def test_mismatched_architecture_returns_1(self):
+        run_patch, which_patch = self._patched({"a.so": "arch = sm_75\n"})
+        with run_patch, which_patch, unittest.mock.patch("sys.stdout", new_callable=io.StringIO):
+            rc = main(["--arch-min", "8.0", "a.so"])
+        self.assertEqual(rc, 1)
+
+    def test_no_device_code_in_any_file_returns_1(self):
+        run_patch, which_patch = self._patched({"a.so": NO_DEVICE_CODE + "\n"})
+        with run_patch, which_patch, unittest.mock.patch("sys.stdout", new_callable=io.StringIO):
+            rc = main(["--arch-min", "7.5", "a.so"])
+        self.assertEqual(rc, 1)
+
+    def test_unreadable_binary_returns_1(self):
+        run_patch, which_patch = self._patched({"a.so": "garbage output\n"})
+        with run_patch, which_patch, unittest.mock.patch("sys.stdout", new_callable=io.StringIO):
+            rc = main(["--arch-min", "7.5", "a.so"])
+        self.assertEqual(rc, 1)
+
+    def test_floor_is_the_highest_of_the_per_file_minimums(self):
+        # A binary that also carries older kernels than the rest of the group must not lower
+        # the computed floor: the group's floor is max(per-file minimum), not min(...).
+        run_patch, which_patch = self._patched(
+            {"a.so": "arch = sm_75\narch = sm_90\n", "b.so": "arch = sm_80\n"}
+        )
+        with run_patch, which_patch, unittest.mock.patch(
+            "sys.stdout", new_callable=io.StringIO
+        ) as stdout:
+            rc = main(["--arch-min", "8.0", "a.so", "b.so"])
+        self.assertEqual(rc, 0)
+        self.assertIn("lowest common arch = 8.0", stdout.getvalue())
