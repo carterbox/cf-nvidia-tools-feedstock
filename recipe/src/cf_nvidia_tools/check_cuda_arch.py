@@ -35,6 +35,10 @@ import sys
 
 # sm_90, compute_90, sm_90a, sm_100f, ...
 ARCH_RE = re.compile(r"(?:sm|compute)_(\d{2,3})[af]?(?![0-9A-Za-z_])")
+# A 4+ digit target (e.g. sm_1210) would mean a two-digit minor version, which is
+# ambiguous to decode back into major/minor (1210 could be 121.0 or 12.10) and is not
+# supported; ARCH_RE above silently ignores such targets, so this catches them instead.
+ARCH_TOO_LONG_RE = re.compile(r"(?:sm|compute)_(\d{4,})[af]?(?![0-9A-Za-z_])")
 ARCH_MIN_RE = re.compile(r"^([1-9][0-9]*)\.([0-9])$")
 NO_DEVICE_CODE = "does not contain device code"
 
@@ -81,6 +85,12 @@ def architectures(cuobjdump, path, flag):
         stderr=subprocess.STDOUT,
         universal_newlines=True,
     )
+    too_long = ARCH_TOO_LONG_RE.search(result.stdout)
+    if too_long is not None:
+        sys.exit(
+            'ERROR: cannot parse CUDA architecture "{}": a two-digit minor version '
+            "is not supported".format(too_long.group(1))
+        )
     keys = {int(digits) for digits in ARCH_RE.findall(result.stdout)}
     return sorted(keys), result.stdout
 
@@ -208,7 +218,7 @@ class ParseArchTests(unittest.TestCase):
         self.assertEqual(parse_arch("12.1"), 121)
 
     def test_invalid(self):
-        for text in ["75", "7", "7.5.0", "abc", ""]:
+        for text in ["75", "7", "7.5.0", "abc", "", "12.10"]:
             self.assertIsNone(parse_arch(text))
 
 
@@ -265,6 +275,12 @@ class ArchitecturesTests(unittest.TestCase):
         keys, output = self._run(NO_DEVICE_CODE + "\n")
         self.assertEqual(keys, [])
         self.assertEqual(output, NO_DEVICE_CODE + "\n")
+
+    def test_two_digit_minor_exits_instead_of_being_silently_dropped(self):
+        # sm_1210 is ambiguous (could be 121.0 or 12.10 decoded back), so it must abort
+        # loudly instead of ARCH_RE silently failing to match it and dropping it.
+        with self.assertRaises(SystemExit):
+            self._run("arch = sm_1210\n")
 
 
 class MainTests(unittest.TestCase):

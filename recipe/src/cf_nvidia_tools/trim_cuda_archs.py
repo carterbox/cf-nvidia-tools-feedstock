@@ -38,7 +38,11 @@ ARCH_MIN_RE = re.compile(r"^([1-9][0-9]*)\.([0-9])$")
 # shorthand for "75-real;75-virtual", so it is valid too and must be trimmed the same way.
 CUDAARCHS_TOKEN_RE = re.compile(r"^(\d+)[a-z]*(?:-(?:real|virtual))?$")
 # 7.5, 8.6+PTX, 9.0a, 9.0a+PTX, ... ("a" marks an arch-conditional target, e.g. sm_90a)
-TORCH_ARCH_TOKEN_RE = re.compile(r"^(\d+)\.(\d+)[a-z]?(?:\+PTX)?$")
+TORCH_ARCH_TOKEN_RE = re.compile(r"^(\d+)\.([0-9])[a-z]?(?:\+PTX)?$")
+# A two-digit minor (e.g. "12.10") would silently collide with another arch under the
+# major*10+minor encoding (12.10 -> 130, same as 13.0), so it must be rejected loudly
+# instead of falling through to TORCH_ARCH_TOKEN_RE's "unrecognized, keep as-is" path.
+TORCH_ARCH_AMBIGUOUS_RE = re.compile(r"^(\d+)\.(\d{2,})[a-z]?(?:\+PTX)?$")
 # pytorch's cpp_extension.py accepts TORCH_CUDA_ARCH_LIST separated by spaces or semicolons
 # (it does `.replace(' ', ';')` before splitting on ';'); CF_TORCH_CUDA_ARCH_LIST is a sed
 # substitution of that same variable, so it carries the same rule.
@@ -81,6 +85,11 @@ def trim_torch_arch_list(value, min_arch):
     for token in TORCH_ARCH_LIST_SEP_RE.split(value.strip()):
         if not token:
             continue
+        if TORCH_ARCH_AMBIGUOUS_RE.match(token):
+            sys.exit(
+                'ERROR: cannot parse CUDA architecture "{}": a two-digit minor version '
+                "is not supported".format(token)
+            )
         match = TORCH_ARCH_TOKEN_RE.match(token)
         if match is None:
             kept.append(token)
@@ -172,7 +181,7 @@ class ParseArchTests(unittest.TestCase):
         self.assertEqual(parse_arch("12.1"), 121)
 
     def test_invalid(self):
-        for text in ["75", "7", "7.5.0", "abc", ""]:
+        for text in ["75", "7", "7.5.0", "abc", "", "12.10"]:
             self.assertIsNone(parse_arch(text))
 
 
@@ -240,6 +249,13 @@ class TrimTorchArchListTests(unittest.TestCase):
         kept, dropped = trim_torch_arch_list("7.5 9.0a+PTX", 90)
         self.assertEqual(kept, "9.0a+PTX")
         self.assertEqual(dropped, ["7.5"])
+
+    def test_two_digit_minor_exits_instead_of_silently_colliding(self):
+        # "12.10" would encode to the same key as "13.0" (12*10+10 == 13*10+0) under the
+        # major*10+minor scheme, so it must abort loudly instead of being kept unfiltered
+        # or silently miscompared.
+        with self.assertRaises(SystemExit):
+            trim_torch_arch_list("7.5 12.10", 75)
 
 
 class TrimNvccGencodeTests(unittest.TestCase):
