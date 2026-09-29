@@ -1,6 +1,7 @@
 context:
   name: cf-nvidia-tools
   version: "1.1.0"
+  build_number: 1
 
 package:
   name: ${{ name|lower }}
@@ -10,28 +11,29 @@ source:
   - path: .
 
 build:
+  noarch: python
+  number: ${{ build_number }}
   script:
     - if: win
       then: build.bat
       else: build.sh
-  number: 0
-  skip: not (linux or win)
+  string: ${{ winorunix }}_${{ hash }}_${{ build_number }}
 
 requirements:
   build:
-    - if: linux
+    - if: unix
       then:
         - shellcheck
   host:
-    - python
+    - python ${{ python_min }}.*
     - pip
     - setuptools
     - setuptools-scm
   run:
-    - if: linux
+    - if: unix
       then:
         - patchelf >=0.12
-    - python >=3.10
+    - python >=${{ python_min }}
     - cuda-cuobjdump
 
 tests:
