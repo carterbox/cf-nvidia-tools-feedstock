@@ -55,3 +55,71 @@ terminal.
 
 If this check fails, increase `c_stdlib_version` to a version newer than the version
 detected by this tool.
+
+## check-cuda-arch
+
+### When to use this tool
+
+The package is a binary with device code.
+
+### Why is this tool needed
+
+For NVIDIA conda packages which are redists, there is no compiling when building the
+package, so we do not automatically know whether the binary was build to support the lowest
+CUDA architecture supported by CUDA toolkit (sm_50 for CUDA 12 and sm_75 for CUDA 13). If we
+don't use the new `cuda-arch` package to set a minimum supported CUDA architecture when the
+binary does not support the minimum arch for a CUDA major version, users can experience
+segmentation faults when conda installs a package that does not support their system. This
+reports whether `cuda_arch_version` matches the computed lowest common CUDA architecture
+across a group of binaries i.e. the lowest architecture that every binary in the group still
+supports.
+
+### How to Use
+
+Use the tool in the build script after installing the binaries to `$PREFIX`, with
+`cuda_arch_version` set in the environment. For example:
+
+```bash
+cuda_arch_version=7.5 check-cuda-arch $PREFIX/lib/libfoo*.so.*
+```
+
+The check exits 0 on a match, 1 on a mismatch or an unreadable binary, and 2 on a bad
+invocation.
+
+## trim-cuda-archs
+
+### When to use this tool
+
+The recipe builds from source with `nvcc` and needs to restrict the CUDA architectures it
+targets to those at or above `cuda_arch_version`, using one of `CUDAARCHS`,
+`CF_TORCH_CUDA_ARCH_LIST`, or `NVCC_GENCODE`.
+
+### Why is this tool needed
+
+By default, these variables are set to a wide range of CUDA architectures, but an upstream
+project may not support all possible CUDA architectures (especially machine learning
+projects which are optimized for only a few datacenter class devices). This tool trims one
+of the three variables down to the architectures at or above a given minimum, without
+requiring the recipe to hand-parse each variable's own syntax. In this way, recipe
+maintainers can still use these variables (which will be updated to track new hardware
+releases) while correctly specifying the minimum architecture requirements.
+
+### How to Use
+
+A subprocess cannot modify its parent shell's environment directly, so capture the tool's
+stdout and reassign it to the variable yourself:
+
+```bash
+export CUDAARCHS="$(trim-cuda-archs CUDAARCHS 7.5)"
+```
+
+```powershell
+$env:CUDAARCHS = trim-cuda-archs CUDAARCHS 7.5
+```
+
+```bat
+for /f "delims=" %i in ('trim-cuda-archs CUDAARCHS 7.5') do set CUDAARCHS=%i
+```
+
+If the named variable is unset or empty, nothing is printed and the assignment becomes
+empty. A report of which architectures were dropped is printed to stderr.

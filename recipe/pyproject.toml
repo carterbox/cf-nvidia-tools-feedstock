@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61", "setuptools_scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cf-nvidia-tools"
+dynamic = ["version"]
+description = "NVIDIA's feedstock validation and linting tools for conda-forge"
+requires-python = ">=3.10"
+
+[project.scripts]
+check-cuda-arch = "cf_nvidia_tools.check_cuda_arch:main"
+trim-cuda-archs = "cf_nvidia_tools.trim_cuda_archs:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["cf_nvidia_tools"]
+script-files = ["bin/check-glibc"]
+
+[tool.setuptools_scm]
