@@ -18,6 +18,10 @@ build:
       then: build.bat
       else: build.sh
   string: ${{ winorunix }}_${{ hash }}_${{ build_number }}
+  python:
+    entry_points:
+      - check-cuda-arch = cf_nvidia_tools.check_cuda_arch:main
+      - trim-cuda-archs = cf_nvidia_tools.trim_cuda_archs:main
 
 requirements:
   build:
