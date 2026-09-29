@@ -3,7 +3,7 @@
 set of binaries.
 
 Usage:
-    python check_cuda_arch.py <file-or-glob> [<file-or-glob> ...]
+    check-cuda-arch <file-or-glob> [<file-or-glob> ...]
 
 The "lowest common CUDA architecture" is the lowest architecture that every binary in the
 set still supports — not the lowest architecture present in any single binary. A binary
@@ -192,7 +192,7 @@ if __name__ == "__main__":
 
 
 # --------------------------------------------------------------------------
-# Unit tests. Run with: python -m unittest check_cuda_arch
+# Unit tests. Run with: python -m unittest cf_nvidia_tools.check_cuda_arch
 # --------------------------------------------------------------------------
 
 import io

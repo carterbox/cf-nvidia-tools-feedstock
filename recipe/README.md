@@ -56,7 +56,7 @@ terminal.
 If this check fails, increase `c_stdlib_version` to a version newer than the version
 detected by this tool.
 
-## check_cuda_arch.py
+## check-cuda-arch
 
 ### When to use this tool
 
@@ -80,13 +80,13 @@ Use the tool in the build script after installing the binaries to `$PREFIX`, wit
 `cuda_arch_version` set in the environment. For example:
 
 ```bash
-cuda_arch_version=7.5 python check_cuda_arch.py $PREFIX/lib/libfoo*.so.*
+cuda_arch_version=7.5 check-cuda-arch $PREFIX/lib/libfoo*.so.*
 ```
 
 The check exits 0 on a match, 1 on a mismatch or an unreadable binary, and 2 on a bad
 invocation.
 
-## trim_cuda_archs.py
+## trim-cuda-archs
 
 ### When to use this tool
 
@@ -110,15 +110,15 @@ A subprocess cannot modify its parent shell's environment directly, so capture t
 stdout and reassign it to the variable yourself:
 
 ```bash
-export CUDAARCHS="$(python trim_cuda_archs.py CUDAARCHS 7.5)"
+export CUDAARCHS="$(trim-cuda-archs CUDAARCHS 7.5)"
 ```
 
 ```powershell
-$env:CUDAARCHS = python trim_cuda_archs.py CUDAARCHS 7.5
+$env:CUDAARCHS = trim-cuda-archs CUDAARCHS 7.5
 ```
 
 ```bat
-for /f "delims=" %i in ('python trim_cuda_archs.py CUDAARCHS 7.5') do set CUDAARCHS=%i
+for /f "delims=" %i in ('trim-cuda-archs CUDAARCHS 7.5') do set CUDAARCHS=%i
 ```
 
 If the named variable is unset or empty, nothing is printed and the assignment becomes

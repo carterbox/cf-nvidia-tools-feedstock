@@ -8,13 +8,13 @@ itself; this works the same way in bash, PowerShell, and cmd.exe. If the variabl
 empty, nothing is printed to stdout (the assignment becomes empty) and nothing to stderr.
 
 Usage (bash):
-    export CUDAARCHS="$(python trim_cuda_archs.py CUDAARCHS 7.5)"
+    export CUDAARCHS="$(trim-cuda-archs CUDAARCHS 7.5)"
 
 Usage (PowerShell):
-    $env:CUDAARCHS = python trim_cuda_archs.py CUDAARCHS 7.5
+    $env:CUDAARCHS = trim-cuda-archs CUDAARCHS 7.5
 
 Usage (cmd.exe):
-    for /f "delims=" %i in ('python trim_cuda_archs.py CUDAARCHS 7.5') do set CUDAARCHS=%i
+    for /f "delims=" %i in ('trim-cuda-archs CUDAARCHS 7.5') do set CUDAARCHS=%i
 
 Expected formats (see conda-forge/cuda-nvcc-feedstock's conda_build_config.yaml and
 conda-forge/pytorch-cpu-feedstock's activate.sh, which are the source of these variables):
@@ -142,7 +142,7 @@ if __name__ == "__main__":
 
 
 # --------------------------------------------------------------------------
-# Unit tests. Run with: python -m unittest trim_cuda_archs
+# Unit tests. Run with: python -m unittest cf_nvidia_tools.trim_cuda_archs
 # --------------------------------------------------------------------------
 
 import io
