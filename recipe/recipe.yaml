@@ -1,7 +1,7 @@
 context:
   name: cf-nvidia-tools
-  version: "1.1.0"
-  build_number: 2
+  version: "1.1.1"
+  build_number: 0
 
 package:
   name: ${{ name|lower }}

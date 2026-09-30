@@ -12,17 +12,24 @@ this value: the group as a whole cannot run on a GPU that any one of its binarie
 support, so the floor is the highest of the per-file minimums, not the lowest.
 
 The expected architecture is read from the ``cuda_arch_version`` environment variable
-(dotted, e.g. ``8.2``) unless ``--arch-min`` is given.  ``cuobjdump`` must be on PATH. The
-check fails if ``cuda_arch_version`` does not exactly match the computed lowest common
-architecture, in either direction: too low means the recipe under-claims what the binaries
-actually require; too high means the recipe claims support the binaries don't actually have.
+(dotted, e.g. ``8.2``) unless ``--arch-min`` is given.  ``cuobjdump`` must be on PATH.
+The check compares the computed lowest common architecture against ``cuda_arch_version``:
+
+* If the binaries actually require something *newer* than ``cuda_arch_version`` claims
+  (computed > expected), that is a real compatibility bug — a user relying on the claimed
+  minimum would get a binary that doesn't support their GPU — and is reported as an
+  **ERROR** that fails the check.
+* If the binaries support something *older* than ``cuda_arch_version`` claims (computed <
+  expected), the recipe is just unnecessarily conservative, not broken, and is reported as
+  a **WARNING** that does not fail the check.
 
 Both SASS (``sm_XX``) and PTX (``compute_XX``) targets count; arch-conditional targets
 (``sm_90a``, ``sm_100f``) count as their base architecture. Files without device code are
 skipped.  The report lists SASS and PTX separately for the log, but the check uses the
 lowest of the two.
 
-Exit codes: 0 = match, 1 = mismatch or unreadable binary, 2 = bad invocation.
+Exit codes: 0 = match or warning, 1 = error (binaries require newer than expected) or
+unreadable binary, 2 = bad invocation.
 """
 
 import argparse
@@ -185,13 +192,21 @@ def main(argv=None):
         print("FAILED: one or more files could not be inspected")
         return 1
 
-    if minimum != expected:
+    if minimum > expected:
         print(
-            "FAILED: lowest common CUDA architecture is {}, expected {}".format(
-                format_arch(minimum), format_arch(expected)
-            )
+            "ERROR: lowest common CUDA architecture is {}, which is higher than "
+            "cuda_arch_version={}; the binaries require more than the recipe "
+            "claims to support".format(format_arch(minimum), format_arch(expected))
         )
         return 1
+
+    if minimum < expected:
+        print(
+            "WARNING: lowest common CUDA architecture is {}, which is lower than "
+            "cuda_arch_version={}; the recipe claims a stricter minimum than the "
+            "binaries may actually require".format(format_arch(minimum), format_arch(expected))
+        )
+        return 0
 
     print("OK")
     return 0
@@ -332,11 +347,29 @@ class MainTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("OK", stdout.getvalue())
 
-    def test_mismatched_architecture_returns_1(self):
+    def test_lower_than_expected_warns_but_returns_0(self):
+        # Binaries support an older architecture (7.5) than cuda_arch_version claims
+        # (8.0): the recipe is unnecessarily conservative, not broken, so this is only
+        # a warning and must not fail the check.
         run_patch, which_patch = self._patched({"a.so": "arch = sm_75\n"})
-        with run_patch, which_patch, unittest.mock.patch("sys.stdout", new_callable=io.StringIO):
+        with run_patch, which_patch, unittest.mock.patch(
+            "sys.stdout", new_callable=io.StringIO
+        ) as stdout:
             rc = main(["--arch-min", "8.0", "a.so"])
+        self.assertEqual(rc, 0)
+        self.assertIn("WARNING", stdout.getvalue())
+
+    def test_higher_than_expected_errors_and_returns_1(self):
+        # Binaries require a newer architecture (7.5) than cuda_arch_version claims
+        # (7.0): a user relying on the claimed minimum would get a binary that doesn't
+        # support their GPU, so this is a real error.
+        run_patch, which_patch = self._patched({"a.so": "arch = sm_75\n"})
+        with run_patch, which_patch, unittest.mock.patch(
+            "sys.stdout", new_callable=io.StringIO
+        ) as stdout:
+            rc = main(["--arch-min", "7.0", "a.so"])
         self.assertEqual(rc, 1)
+        self.assertIn("ERROR", stdout.getvalue())
 
     def test_no_device_code_in_any_file_returns_1(self):
         run_patch, which_patch = self._patched({"a.so": NO_DEVICE_CODE + "\n"})
