@@ -62,6 +62,7 @@ tests:
       run:
         - libcublas 13.*
         - cuda-cuobjdump
+        - python ${{ python_min }}.*
     script:
       # Separate native scripts, not a shared Python one, so each platform's test actually
       # exercises the shell setting idiom documented for it (bash `export X="$(...)"` vs.
